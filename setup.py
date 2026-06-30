@@ -18,7 +18,7 @@ setup(
         'grpcio>=1.47.0',
         'opencensus-ext-stackdriver==0.8.0',
         'opencensus-ext-prometheus',
-        'opencensus==0.10.0',
+        'opencensus>=0.11.4',
         'python-ldap',
         'pyyaml',
     ],
