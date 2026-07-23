@@ -16,9 +16,11 @@ class ChildObjectConfigurationTransformer(ConfigurationTransformer):
         config = copy.deepcopy(configuration)
         for server_config in config.get('ldap_servers'):
             ldap_server = ChildObjectConfigurationTransformer.get_ldap_server(server_config)
-            if not server_config.get('sync_only', False):
+            # A server entry with no object tree defines no cn=Monitor
+            # metrics (e.g. statsLogPipe only) and has nothing to transform
+            if not server_config.get('sync_only', False) and server_config.get('object'):
                 server_config['object'] = ChildObjectConfigurationTransformer.process_objects_for_ldap_server(
-                    configuration=server_config.get('object', {}),
+                    configuration=server_config.get('object'),
                     dn='',
                     ldap_server=ldap_server
                 )
