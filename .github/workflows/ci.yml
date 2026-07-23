@@ -1,0 +1,95 @@
+# End to end test of the statsLogPipe latency path against a real slapd.
+#
+# slapd runs as a service container from the stock bitnami OpenLDAP image,
+# configured entirely through environment variables.  The job container and
+# the service share the openldap_stats docker volume, mounted at /stats in
+# both, which carries the named pipe (FIFO).  The test starts the exporter,
+# which holds the pipe's read end, then points the running slapd at the pipe
+# by setting olcLogFile through the cn=config admin, and generates traffic
+# over the service network at ldap://openldap:389.
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  logging:
+    timeout-minutes: 20
+    runs-on: self-hosted
+    container:
+      image: docker.internal.networkradius.com/self-hosted
+      options: >-
+        --memory-swap -1
+      volumes:
+        - openldap_stats:/stats
+    defaults:
+      run:
+        shell: bash
+    services:
+      openldap:
+        image: bitnamilegacy/openldap:latest
+        env:
+          LDAP_PORT_NUMBER: 389
+          LDAP_ROOT: dc=example,dc=org
+          LDAP_ADMIN_USERNAME: admin
+          LDAP_ADMIN_PASSWORD: secret
+          # cn=admin,cn=config lets the test set olcLogFile on the running server
+          LDAP_CONFIG_ADMIN_ENABLED: yes
+          LDAP_CONFIG_ADMIN_USERNAME: admin
+          LDAP_CONFIG_ADMIN_PASSWORD: secret
+          # Empty database: the test seeds its own entries and asserts counts
+          LDAP_SKIP_DEFAULT_TREE: yes
+          # The unknown-suffix check searches the root DSE anonymously
+          LDAP_ALLOW_ANON_BINDING: yes
+          # 256 is the stats debug mask; bitnami passes it to slapd -d, and
+          # the logfile slapd opens on olcLogFile carries the debug stream
+          LDAP_LOGLEVEL: 256
+        volumes:
+          - openldap_stats:/stats
+
+    steps:
+      - name: Mark the complete directory hierarchy as safe
+        run: git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install python build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            python3 \
+            python3-venv \
+            python3-dev \
+            build-essential \
+            libldap2-dev \
+            libsasl2-dev
+
+      - name: Install the exporter into a venv
+        run: |
+          python3 -m venv venv
+          ./venv/bin/pip install --quiet .
+
+      - name: Create the stats pipe in the shared volume
+        # The volume persists on the runner host between jobs, so clear any
+        # stale pipe first.  Mode 666: bitnami's slapd runs as uid 1001 and
+        # must be able to open the pipe for writing.
+        run: |
+          rm -f /stats/stats.pipe
+          mkfifo -m 666 /stats/stats.pipe
+
+      - name: Run the logging test
+        run: ./venv/bin/python -m unittest discover -s tests/integration/statsLog -v
+
+      - name: On Failure - Dump exporter log
+        run: cat tests/integration/statsLog/run/exporter.log
+        if: ${{ github.ref != 'refs/heads/ci-debug' && failure() }}
+
+      - name: "On Failure - Start tmate"
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+        if: ${{ github.ref == 'refs/heads/ci-debug' && failure() }}

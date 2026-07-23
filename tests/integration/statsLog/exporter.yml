@@ -1,0 +1,19 @@
+# Exporter configuration for the logging integration test.
+# No `object` tree: the test only exercises the statsLogPipe latency path,
+# so the poll loop never queries LDAP.  The pipe lives in the docker volume
+# ci.yml shares between this container and the slapd service container.
+ldapServers:
+  - database: citest
+    connection:
+      serverUri: ldap://openldap:389
+    statsLogPipe:
+      pipe: /stats/stats.pipe
+      suffixes:
+        - dc=example,dc=org
+exporters:
+  - name: Prometheus
+    options:
+      namespace: openldap
+      port: 8000
+      address: 127.0.0.1
+period: 5
