@@ -19,8 +19,10 @@ setup(
         'opencensus-ext-stackdriver==0.8.0',
         'opencensus-ext-prometheus',
         'opencensus>=0.11.4',
+        'prometheus-client',
         'python-ldap',
         'pyyaml',
+        'watchfiles',
     ],
     keywords='openldap opencensus metrics',
     entry_points={

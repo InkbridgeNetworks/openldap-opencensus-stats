@@ -6,6 +6,15 @@ ldapServers:
       userPassword: password
       startTls: false
       timeout: 5
+    # Optional: read slapd qtime/etime stats lines from this named pipe and
+    # publish latency histograms.  See README "Operation latency over a stats pipe".
+    # Short form:  statsLogPipe: /run/openldap/stats
+    # With suffixes, latency is additionally labelled by directory suffix:
+    statsLogPipe:
+      pipe: /run/openldap/stats
+      suffixes:
+        - dc=example,dc=org
+        - cn=accesslog
   - database: ldap2
     connection:
       serverUri: ldap://ldap2.example.org/

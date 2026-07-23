@@ -270,6 +270,113 @@ Statistics are tagged with the base DN and the `rid` of the provider.  In a mult
 cluster, for each `reportServers` entry there will be one statistic recorded for each
 provider in the cluster tagged with the appropriate `rid`.
 
+### statsLogPipe: operation latency over a stats pipe
+The monitoring database (cn=Monitor) only exposes operation counters, so polling it can
+never give latency.  slapd does log latency: every completed operation writes one RESULT
+line to the stats log carrying `qtime` (time the operation sat queued before a worker
+thread picked it up) and `etime` (wall clock time from receipt of the operation until
+its result was sent).  Both timers start when slapd reads the operation off the
+network, so `etime` includes `qtime`.
+
+The `statsLogPipe` key makes this service read those lines from a named pipe (FIFO, a file
+that passes data directly from a writing program to a reading one without storing it) and
+publish them as latency histograms on the Prometheus metrics page: `qtime` appears as
+`openldap_queue_latency_seconds` and `etime` as `openldap_operation_latency_seconds`,
+labelled with `database` and `operation` (bind, search, modify, add, delete, modrdn,
+compare, extended, disconnect).  The timing data never touches disk.
+
+These two histograms are recorded directly into the Prometheus client library rather
+than through OpenCensus, because a busy slapd can produce hundreds of thousands of log
+lines per second and OpenCensus recording tops out around ten thousand per second.  A
+reader that cannot keep up fills the pipe and stalls slapd's worker threads.  The
+consequence: the latency histograms only appear on the Prometheus metrics page, never
+through the Stackdriver exporter.
+
+An example, on the server entry it applies to:
+```yaml
+ldapServers:
+  - database: ldap1
+    connection:
+      serverUri: ldapi:///
+    statsLogPipe: /run/openldap/stats
+```
+
+#### Labelling latency by directory suffix
+The RESULT line does not name a database, but every operation first logs a request line
+carrying the target distinguished name (DN) under the same `conn=`/`op=` identifiers.
+When `statsLogPipe` is given as a mapping with a `suffixes` list, the reader remembers the
+DN of each in-flight operation and labels the timing with the longest configured suffix
+the DN falls under:
+```yaml
+    statsLogPipe:
+      pipe: /run/openldap/stats
+      suffixes:
+        - dc=example,dc=org
+        - cn=accesslog
+```
+Timings that cannot be attributed get `suffix="unknown"`: extended operations (their
+request line carries no DN), and operations already in flight when the reader started.
+Without a `suffixes` list the label is empty and no request tracking happens.
+Completed operations release their entry immediately: the result pops it, and the
+connection close drops all of a connection's entries.  Operations that never
+complete (abandons, persistent searches) are reclaimed by an hourly two pass
+sweep: an entry survives the first sweep after it was recorded and is freed by
+the second, so it lives at least one hour and at most two.  An operation that
+outlives its entry is still counted when a result finally arrives, labelled
+`suffix="unknown"`.
+
+How the pieces connect:
+1. Something creates the FIFO before slapd starts, for example a systemd drop-in on the
+   slapd unit with `ExecStartPre=/usr/bin/mkfifo /run/openldap/stats` (the same wiring the
+   openldap-audit2json deployment uses for the audit log pipe).
+2. This service starts and holds the read end of the FIFO open.  slapd cannot finish
+   opening the write end until a reader exists, so this service must be running first.
+3. slapd is told to write its log to the FIFO, and to send the stats category there.
+4. Each RESULT line slapd writes is parsed and recorded, and the exporters publish the
+   histograms.
+
+The slapd side needs three settings.  The first two are persistent (cn=config):
+```ldif
+dn: cn=config
+changetype: modify
+replace: olcLogLevel
+olcLogLevel: stats
+-
+replace: olcLogFile
+olcLogFile: /run/openldap/stats
+-
+replace: olcLogFileFormat
+olcLogFileFormat: syslog-utc
+```
+`olcLogLevel` controls what slapd sends to syslog.  `stats` keeps syslog behaving as a
+default slapd does.  Do NOT set `olcLogFileOnly`: that would turn syslog off entirely.
+Do NOT set `olcLogFileRotate`: rotation renames the log path, which must never happen to
+a FIFO.
+
+The third setting routes the stats category to the logfile and must be re-applied after
+every slapd restart (cn=Monitor settings are not persistent), for example from an
+`ExecStartPost` on the slapd unit:
+```ldif
+dn: cn=Log,cn=Monitor
+changetype: modify
+replace: monitorDebugLevel
+monitorDebugLevel: stats
+```
+Alternatively, start slapd with `-d stats` to make the routing persistent.  Note that
+`-d` also stops slapd detaching from the terminal, so the service unit must expect a
+foreground process.
+
+Failure behaviour: slapd ignores SIGPIPE and discards logging write errors, so if this
+service stops, slapd keeps running and only the metrics are lost.  If slapd stops, this
+service keeps the pipe open and picks up again when slapd returns.
+
+Known gaps in the data, inherent to slapd's stats log:
+- Abandoned operations never log a RESULT line, so operations the client gave up on are
+  missing from the histograms.  The slowest queries are exactly the ones most likely to
+  be abandoned; compare the cn=Monitor initiated/completed counters to see the gap.
+- Unbind and Abandon carry no timing.
+- A search returning many entries logs one line whose etime covers the entire search.
+
 ## Credits
 Copyright 2023, NetworkRADIUS 
 This utility was written by Mark Donnelly, mark - at - painless-securtiy - dot - com.

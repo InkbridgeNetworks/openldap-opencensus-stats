@@ -10,6 +10,7 @@ from openldap_opencensus_stats.ldap_metric_set import MetricSet
 from openldap_opencensus_stats.sync_metric_set import SyncMetricSet
 from openldap_opencensus_stats.ldap_server import LdapServerPool
 from openldap_opencensus_stats.ldap_statistic import LdapStatistic
+from openldap_opencensus_stats.ldap_stats_log_pipe import LdapStatsLogPipeReader, METRICS_NAMESPACE_DEFAULT
 
 from opencensus.stats import stats
 from opencensus.ext.prometheus import stats_exporter
@@ -31,6 +32,7 @@ class Configuration:
         self._sleep_time = 5
         self._metric_sets = []
         self._ldap_metrics = {}
+        self._stats_log_pipe_readers = []
 
         self.reconfigure()
 
@@ -45,14 +47,29 @@ class Configuration:
         if log_config and isinstance(log_config, dict):
             log_config['version'] = log_config.get('version', 1)
             logging.config.dictConfig(log_config)
+        prometheus_namespace = METRICS_NAMESPACE_DEFAULT
         for exporter_config in normalized_configuration.get('exporters', []):
             exporter = create_exporter(exporter_config)
             stats.stats.view_manager.register_exporter(exporter)
+            if exporter_config.get('name') == 'Prometheus':
+                prometheus_namespace = exporter.options.namespace
 
         for ldap_server_config in normalized_configuration.get('ldap_servers', []):
             if not ldap_server_config.get('sync_only', False):
                 metric_set = self.generate_metric_set(ldap_server_config)
                 self._metric_sets.append(metric_set)
+            stats_log_pipe = ldap_server_config.get('stats_log_pipe')
+            if stats_log_pipe:
+                if isinstance(stats_log_pipe, str):
+                    stats_log_pipe = {'pipe': stats_log_pipe}
+                stats_log_pipe_reader = LdapStatsLogPipeReader(
+                    database=ldap_server_config.get('database'),
+                    pipe_path=stats_log_pipe.get('pipe'),
+                    suffixes=stats_log_pipe.get('suffixes'),
+                    namespace=prometheus_namespace
+                )
+                stats_log_pipe_reader.start()
+                self._stats_log_pipe_readers.append(stats_log_pipe_reader)
 
         for base_dn, sync_config in normalized_configuration.get('sync', {}).items():
             ldap_server_names = sync_config.get('cluster_servers', [])
@@ -139,7 +156,7 @@ def create_exporter(exporter_configuration=None):
         if 'options' not in exporter_configuration:
             logging.error("The Prometheus exporter requires options configuration.")
             raise ValueError("The Prometheus exporter requires options configuration.")
-        final_options = {'namespace': 'openldap', 'port': 8000, 'address': '0.0.0.0'}
+        final_options = {'namespace': METRICS_NAMESPACE_DEFAULT, 'port': 8000, 'address': '0.0.0.0'}
         final_options.update(options)
         exporter = stats_exporter.new_stats_exporter(
             stats_exporter.Options(**final_options)
