@@ -15,8 +15,6 @@ setup(
     license='AGPL 3.0',
     packages=find_packages(),
     install_requires=[
-        'grpcio>=1.47.0',
-        'opencensus-ext-stackdriver==0.8.0',
         'opencensus-ext-prometheus',
         'opencensus>=0.11.4',
         'prometheus-client',
@@ -24,6 +22,16 @@ setup(
         'pyyaml',
         'watchfiles',
     ],
+    extras_require={
+        # grpcio (opencensus-ext-stackdriver's own dependency) is optional;
+        # deployments that only use the Prometheus exporter don't need it.
+        # pip install openldap-opencensus-stats[stackdriver] pulls this in
+        # for anyone who does need the Stackdriver exporter.
+        'stackdriver': [
+            'grpcio>=1.47.0',
+            'opencensus-ext-stackdriver==0.8.0',
+        ],
+    },
     keywords='openldap opencensus metrics',
     entry_points={
         'console_scripts': [

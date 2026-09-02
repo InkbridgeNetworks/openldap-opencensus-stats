@@ -14,7 +14,6 @@ from openldap_opencensus_stats.ldap_stats_log_pipe import LdapStatsLogPipeReader
 
 from opencensus.stats import stats
 from opencensus.ext.prometheus import stats_exporter
-import opencensus.ext.stackdriver.stats_exporter
 
 # Make up for broken code in the Prometheus exporter
 import opencensus.stats.aggregation_data
@@ -163,6 +162,10 @@ def create_exporter(exporter_configuration=None):
         )
 
     elif "Stackdriver" == name:
+        # Imported here, not at module level: opencensus-ext-stackdriver and its
+        # grpcio dependency are optional (see setup.py's "stackdriver" extra),
+        # so this module must not import them unconditionally.
+        import opencensus.ext.stackdriver.stats_exporter
         exporter = opencensus.ext.stackdriver.stats_exporter.new_stats_exporter(interval=5)
         print(f"Exporting stats to this project {exporter.options.project_id}")
 
