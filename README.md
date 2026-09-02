@@ -17,6 +17,14 @@ monitoring software, such as GCP.
 sudo pip3 install openldap-opencensus-stats
 ```
 
+The Stackdriver exporter depends on `grpcio`, which is packaged as an
+optional extra rather than part of the default install. Deployments that
+only use the Prometheus exporter can ignore this; anyone who needs the
+Stackdriver exporter should install with:
+```bash
+sudo pip3 install openldap-opencensus-stats[stackdriver]
+```
+
 ### Configuration
 A sample configuration file is provided in openldap-opencensus-stats.template.yml.  The
 configuration is YAML data, with the structure described below.
@@ -95,7 +103,8 @@ exporters:
 Each entry will have the structure:
 - **name** _(required)_: The name of the exporter.  Currently only two names
   are supported, `Stackdriver` to export to GCP, and `Prometheus`, which
-  is mostly useful for development or debugging.
+  is mostly useful for development or debugging.  Using `Stackdriver`
+  requires installing the `stackdriver` extra (see Installation above).
 - **options** _(required)_: The options for instantiating the exporter.
   The contents will vary depending on the chosen exporter.
   - **project_id** _(required for Stackdriver)_: The GCP project ID
