@@ -1,0 +1,69 @@
+#!/bin/sh
+#
+# PROVIDE: openldap_opencensus_stats
+# REQUIRE: DAEMON NETWORKING
+# KEYWORD: shutdown
+#
+# Add the following to /etc/rc.conf, or a file under /etc/rc.conf.d/, to
+# enable this service:
+#
+# openldap_opencensus_stats_enable (bool):           Set to YES to enable.
+#                                                     Default: NO
+# openldap_opencensus_stats_config (str):            Path to the exporter's
+#                                                     YAML config file.
+#                                                     Default: /etc/openldap-opencensus-stats.yml
+# openldap_opencensus_stats_bin (str):                Path to the
+#                                                     openldap_opencensus_stats
+#                                                     binary (normally the one
+#                                                     inside its venv).
+#                                                     Default: /opt/openldap-opencensus-stats/venv/bin/openldap_opencensus_stats
+# openldap_opencensus_stats_env_file (str):          Optional file of
+#                                                     environment variables
+#                                                     (e.g. GCP auth) sourced
+#                                                     before start - mirrors
+#                                                     the systemd unit's
+#                                                     EnvironmentFile=.
+#                                                     Default: /usr/local/etc/openldap-opencensus-stats.env
+# openldap_opencensus_stats_ld_library_path (str):   Extra LD_LIBRARY_PATH
+#                                                     entry - the OpenLDAP lib
+#                                                     dir the venv's
+#                                                     python-ldap was built
+#                                                     against.
+#                                                     Default: /usr/local/lib
+#
+
+. /etc/rc.subr
+
+name="openldap_opencensus_stats"
+rcvar="${name}_enable"
+
+load_rc_config "${name}"
+
+: "${openldap_opencensus_stats_enable:=NO}"
+: "${openldap_opencensus_stats_config:=/etc/openldap-opencensus-stats.yml}"
+: "${openldap_opencensus_stats_bin:=/opt/openldap-opencensus-stats/venv/bin/openldap_opencensus_stats}"
+: "${openldap_opencensus_stats_env_file:=/usr/local/etc/openldap-opencensus-stats.env}"
+: "${openldap_opencensus_stats_ld_library_path:=/usr/local/lib}"
+
+pidfile="/var/run/${name}/${name}.daemon.pid"
+child_pidfile="/var/run/${name}/${name}.pid"
+
+command="/usr/sbin/daemon"
+command_args="-R 1 -P ${pidfile} -p ${child_pidfile} -t ${name} -f -S -T ${name} ${openldap_opencensus_stats_bin} ${openldap_opencensus_stats_config}"
+
+start_precmd="${name}_prestart"
+
+openldap_opencensus_stats_prestart()
+{
+	install -d -m 0755 "$(dirname "${pidfile}")"
+
+	if [ -f "${openldap_opencensus_stats_env_file}" ]; then
+		set -a
+		. "${openldap_opencensus_stats_env_file}"
+		set +a
+	fi
+
+	export LD_LIBRARY_PATH="${openldap_opencensus_stats_ld_library_path}"
+}
+
+run_rc_command "$1"
