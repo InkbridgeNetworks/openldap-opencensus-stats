@@ -388,18 +388,14 @@ Known gaps in the data, inherent to slapd's stats log:
 
 ## Releasing
 
-1. In [setup.py](setup.py), bump `VERSION` and commit that change to `main`
-   (past commits use the message "Bump version").
-2. On GitHub, create a Release against that commit, with a tag named
-   `v<VERSION>` (e.g. `v0.0.20`) to match.
-3. Publishing the Release triggers
+1. On GitHub, create a Release against the desired commit on `main`, with a
+   tag named `v<VERSION>` (e.g. `v0.0.21`).
+2. Publishing the Release triggers
    [.github/workflows/python-publish.yml](.github/workflows/python-publish.yml),
-   which builds the package with `python -m build` and uploads it to PyPI via
+   which builds the package with `python -m build` (hatch-vcs reads the tag
+   to set the package version) and uploads it to PyPI via
    `pypa/gh-action-pypi-publish`, authenticating with the repository's
    `PYPI_API_TOKEN` secret.
-
-No manual `git tag` or `twine upload` is needed: creating the GitHub Release
-is what fires the publish workflow.
 
 ## Credits
 Copyright 2023, NetworkRADIUS 

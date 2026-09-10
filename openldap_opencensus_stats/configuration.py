@@ -163,7 +163,7 @@ def create_exporter(exporter_configuration=None):
 
     elif "Stackdriver" == name:
         # Imported here, not at module level: opencensus-ext-stackdriver and its
-        # grpcio dependency are optional (see setup.py's "stackdriver" extra),
+        # grpcio dependency are optional (see pyproject.toml's "stackdriver" extra),
         # so this module must not import them unconditionally.
         import opencensus.ext.stackdriver.stats_exporter
         exporter = opencensus.ext.stackdriver.stats_exporter.new_stats_exporter(interval=5)
