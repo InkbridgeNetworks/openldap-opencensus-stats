@@ -54,6 +54,8 @@ include = [
     "openldap_opencensus_stats/**",
     "README.md",
     "openldap-opencensus-stats.template.yml",
+    "linux/openldap-opencensus-stats.service",
+    "freebsd/openldap_opencensus_stats",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -61,3 +63,5 @@ packages = ["openldap_opencensus_stats"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "openldap-opencensus-stats.template.yml" = "etc/openldap-opencensus-stats.template.yml"
+"linux/openldap-opencensus-stats.service" = "share/openldap-opencensus-stats/openldap-opencensus-stats.service"
+"freebsd/openldap_opencensus_stats" = "share/openldap-opencensus-stats/openldap_opencensus_stats.rc"
