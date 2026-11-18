@@ -1,0 +1,42 @@
+#
+#  The stats log named pipe (FIFO) that slapd writes and
+#  openldap-opencensus-stats reads.
+#
+#  Opening a FIFO for writing blocks until a reader opens the FIFO. slapd
+#  opens the log file when slapd starts, and again as soon as an
+#  administrator sets `olcLogFile` on a running server. Because systemd
+#  creates the FIFO and holds the FIFO open from boot, slapd never blocks
+#  when slapd opens the FIFO. When data arrives on the FIFO and
+#  openldap-opencensus-stats.service is not running, systemd starts the
+#  service.
+#
+#  slapd runs as a separate user and must be able to write the FIFO. Set
+#  the owner of the FIFO with a drop-in, for example
+#  `/etc/systemd/system/openldap-opencensus-stats.socket.d/owner.conf`:
+#
+#    [Socket]
+#    SocketUser=openldap
+#    SocketGroup=openldap
+#
+#  To move the FIFO to a different path:
+#    1. In a drop-in, add an empty `ListenFIFO=` line, then a
+#       `ListenFIFO=` line that names the new path. The empty line clears
+#       the path that this file sets.
+#    2. Run `systemctl daemon-reload`, then restart this socket unit.
+#    3. Set the `statsLogPipe` key to the new path, and restart
+#       openldap-opencensus-stats.service.
+#    4. Set `olcLogFile` to the new path.
+#
+#  To enable the FIFO: `systemctl enable --now openldap-opencensus-stats.socket`.
+#
+[Unit]
+Description=openldap-opencensus-stats stats log FIFO
+
+[Socket]
+ListenFIFO=/run/openldap-opencensus-stats/stats
+SocketMode=0600
+DirectoryMode=0755
+Service=openldap-opencensus-stats.service
+
+[Install]
+WantedBy=sockets.target

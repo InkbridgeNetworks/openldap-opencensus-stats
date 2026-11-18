@@ -307,7 +307,7 @@ ldapServers:
   - database: ldap1
     connection:
       serverUri: ldapi:///
-    statsLogPipe: /run/openldap/stats
+    statsLogPipe: /run/openldap-opencensus-stats/stats
 ```
 
 #### Labelling latency by directory suffix
@@ -318,7 +318,7 @@ DN of each in-flight operation and labels the timing with the longest configured
 the DN falls under:
 ```yaml
     statsLogPipe:
-      pipe: /run/openldap/stats
+      pipe: /run/openldap-opencensus-stats/stats
       suffixes:
         - dc=example,dc=org
         - cn=accesslog
@@ -335,14 +335,42 @@ outlives its entry is still counted when a result finally arrives, labelled
 `suffix="unknown"`.
 
 How the pieces connect:
-1. Something creates the FIFO before slapd starts, for example a systemd drop-in on the
-   slapd unit with `ExecStartPre=/usr/bin/mkfifo /run/openldap/stats` (the same wiring the
-   openldap-audit2json deployment uses for the audit log pipe).
-2. This service starts and holds the read end of the FIFO open.  slapd cannot finish
-   opening the write end until a reader exists, so this service must be running first.
-3. slapd is told to write its log to the FIFO, and to send the stats category there.
-4. Each RESULT line slapd writes is parsed and recorded, and the exporters publish the
-   histograms.
+1. The `openldap-opencensus-stats.socket` unit, installed next to the
+   `openldap-opencensus-stats.service` unit in `share/openldap-opencensus-stats/`,
+   creates the FIFO at `/run/openldap-opencensus-stats/stats`.  Opening a FIFO for
+   writing blocks until a reader opens the FIFO.  slapd opens the log file when slapd
+   starts, and again as soon as an administrator sets `olcLogFile` on a running server.
+   Because the socket unit holds the FIFO open from boot, slapd never blocks when slapd
+   opens the FIFO.
+
+   slapd runs as a separate user and must be able to write the FIFO.  Set the owner of
+   the FIFO to the slapd user with a drop-in.  The comment header of
+   `openldap-opencensus-stats.socket` shows an example drop-in.  Then add a second
+   drop-in that makes slapd start the socket unit, and start after the socket unit:
+   ```ini
+   # /etc/systemd/system/slapd.service.d/stats-fifo.conf
+   [Unit]
+   Wants=openldap-opencensus-stats.socket
+   After=openldap-opencensus-stats.socket
+   ```
+   To enable the FIFO: `systemctl enable --now openldap-opencensus-stats.socket`.
+2. The `openldap-opencensus-stats.service` unit reads the FIFO.  When data arrives on
+   the FIFO and the service is not running, systemd starts the service.  If the service
+   can never start, nothing reads the FIFO, and slapd blocks once slapd's writes fill
+   the FIFO.  Because a full FIFO blocks slapd, the service unit sets a start limit of
+   10 starts in 60 seconds.  When the service reaches the limit, systemd marks the socket
+   unit as failed and closes the FIFO.  slapd's writes to the FIFO then fail with the
+   error code `EPIPE`.  slapd ignores the error, and the failure loses only the metrics.
+3. slapd writes the log to the FIFO, and the log includes the stats category.  The
+   settings after this list configure both.  Because the socket unit starts the service
+   only when the service is not running, a service that still reads the previous FIFO
+   path never reads the FIFO at the new path, and slapd blocks once the new FIFO fills.
+   To move the FIFO to a new path, first set the new path in a socket unit drop-in, run
+   `systemctl daemon-reload`, and restart `openldap-opencensus-stats.socket`.  Then
+   restart `openldap-opencensus-stats.service` with the new path in `statsLogPipe`.
+   Then change `olcLogFile` to the new path.
+4. The service parses each RESULT line that slapd writes and records the timings.  The
+   Prometheus exporter then publishes the histograms.
 
 The slapd side needs three settings.  The first two are persistent (cn=config):
 ```ldif
@@ -352,7 +380,7 @@ replace: olcLogLevel
 olcLogLevel: stats
 -
 replace: olcLogFile
-olcLogFile: /run/openldap/stats
+olcLogFile: /run/openldap-opencensus-stats/stats
 -
 replace: olcLogFileFormat
 olcLogFileFormat: syslog-utc
